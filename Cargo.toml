@@ -1,0 +1,15 @@
+[package]
+name = "tmemo"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tmemo"
+path = "src/bin.rs"
+
+[dependencies]
+chrono = "0"
+crossterm = { version = "0", features=["serde"] }
+ratatui = "0"
+serde = { version = "1", features= ["derive"]}
+serde_json = { version = "1", features=["float_roundtrip"] }
