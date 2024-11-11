@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::error;
-use std::fmt;
 use std::fs;
 use std::io::{BufReader, BufWriter};
 use std::string::String;
@@ -194,7 +192,15 @@ impl Deck {
             &self.params,
         );
         match result {
-            ReviewResult::Discard => self.review_indices.remove(review_index),
+            ReviewResult::Discard => {
+                let card : &Card = &self.cards[card_index];
+                if card.fsrs_state.stability > 2.0 {
+                    let offset = self.card_review_offset(card.fsrs_state.review_date);
+                    self.cards[card_index].fsrs_state.review_date.day += offset;
+                }
+
+                self.review_indices.remove(review_index)
+            },
             _ => 0,
         };
         self.gen_review_index(generator);
@@ -268,6 +274,30 @@ impl Deck {
 
     pub fn active_review_count(self: &Self) -> usize {
         self.review_indices.len()
+    }
+
+    fn card_review_offset(&self, day: Date) -> i32 {
+        // If the current day is a local maxima, move the review to another day
+        let mut yesterday_count = 0;
+        let mut today_count = 0;
+        let mut tomorrow_count = 0;
+        for card in &self.cards {
+            if card.fsrs_state.review_date == day {
+                today_count += 1;
+            } else if card.fsrs_state.review_date.day + 1 == day.day {
+                yesterday_count += 1;
+            } else if card.fsrs_state.review_date.day - 1 == day.day {
+                tomorrow_count += 1;
+            }
+        }
+
+        if today_count > yesterday_count && tomorrow_count >= yesterday_count {
+            -1
+        } else if today_count > tomorrow_count && yesterday_count > tomorrow_count {
+            1
+        } else {
+            0
+        }
     }
 
     pub fn random_reschedule_fractional(&mut self, frac_diff: f64, generator: &mut SplitMix64) {
