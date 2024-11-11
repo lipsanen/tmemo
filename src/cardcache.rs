@@ -202,6 +202,6 @@ mod tests {
         let cards = cache
             .get_all_cards_in_work_directory(Some(date(2024, 1, 1)))
             .unwrap();
-        assert_eq!(cards.cards.len(), 9);
+        assert_eq!(cards.cards.len(), 11);
     }
 }
