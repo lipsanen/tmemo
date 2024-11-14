@@ -206,23 +206,10 @@ fn find_card(input: &str, card: &Card, heading: Option<String>) -> Option<CardLo
 
     None
 }
-
-#[derive(Debug, Clone)]
-pub struct QuoteSettings {
-    pub words_in_cloze: i32,
-    pub words_before_after: i32,
-}
-
-#[derive(Debug, Clone)]
-pub struct LineSettings {
-    pub lines_before_after: i32,
-}
-
 #[derive(Debug, Clone)]
 pub enum ClozeType {
     TripleBrace,
     TripleParen,
-    Lines(LineSettings),
 }
 
 pub struct ClozeIterator<'a> {
@@ -297,71 +284,6 @@ impl<'a> ClozeIterator<'a> {
             after: "",
         })
     }
-
-    fn build_line_vec(&mut self) {
-        let mut working_str = self.input;
-        loop {
-            let next_word_idx = working_str.find(|c: char| !c.is_whitespace());
-            if next_word_idx.is_none() {
-                break;
-            }
-            let next_word_idx = next_word_idx.unwrap();
-            working_str = &working_str[next_word_idx..];
-            self.quote_words.push(working_str);
-            let next_line = working_str.find(|c: char| c == '\n');
-            if next_line.is_none() {
-                break;
-            }
-            working_str = &working_str[next_line.unwrap()..];
-        }
-        self.quote_word_index = Some(0);
-    }
-
-    fn get_line_ending(&self, mut index: usize) -> *const u8 {
-        if index >= self.quote_words.len() {
-            index = self.quote_words.len() - 1;
-        }
-
-        let str = &self.quote_words[index];
-        let newline_opt = str.find(|x| x == '\n');
-
-        if let Some(opt) = newline_opt {
-            unsafe { str.as_ptr().add(opt)}
-        } else {
-            unsafe { str.as_ptr().add(str.len()) }
-        }
-    }
-
-    fn next_line(&mut self, settings: LineSettings) -> Option<ClozeItem<'a>> {
-        if self.quote_word_index.is_none() {
-            self.build_line_vec();
-        }
-
-        let index = self.quote_word_index.unwrap();
-        if index >= self.quote_words.len() {
-            return None;
-        }
-
-        let start_index: i32 = (index as i32 - settings.lines_before_after).max(0);
-        let before_ptr = self.quote_words[start_index as usize].as_ptr();
-        let cloze_ptr = self.quote_words[index].as_ptr();
-        let cloze_end_ptr = self.get_line_ending(index);
-        let after_ptr = self.get_line_ending(index + settings.lines_before_after as usize);
-
-        let before_index = unsafe { before_ptr.offset_from(self.input.as_ptr()) } as usize;
-        let cloze_index = unsafe { cloze_ptr.offset_from(self.input.as_ptr()) } as usize;
-        let cloze_end_index = unsafe { cloze_end_ptr.offset_from(self.input.as_ptr()) } as usize;
-        let after_index = unsafe { after_ptr.offset_from(self.input.as_ptr()) } as usize;
-        self.quote_word_index = Some(index + 1);
-
-        Some(ClozeItem {
-            cloze_start: cloze_index,
-            cloze_end: after_index,
-            before: &self.input[before_index..cloze_index],
-            clozed: &self.input[cloze_index..cloze_end_index],
-            after: &self.input[cloze_end_index..after_index],
-        })
-    }
 }
 
 impl<'a> Iterator for ClozeIterator<'a> {
@@ -371,7 +293,6 @@ impl<'a> Iterator for ClozeIterator<'a> {
         match self.cloze_type.clone() {
             ClozeType::TripleBrace => self.next_brace(),
             ClozeType::TripleParen => self.next_paren(),
-            ClozeType::Lines(settings) => self.next_line(settings),
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::date::Date;
 use crate::fsrs::{FSRSState, ReviewLogItem};
-use crate::parsing::{ClozeIterator, ClozeType, LineSettings};
+use crate::parsing::{ClozeIterator, ClozeType};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
 use std::string::String;
@@ -271,74 +271,7 @@ fn replace_cloze(input: &str, cloze_type: ClozeType) -> String {
     output
 }
 
-fn is_at_beginning(input: &str, sub_str: &str) -> bool {
-    unsafe { sub_str.as_ptr().byte_offset_from(input.as_ptr()) == 0 }
-}
-
-fn is_at_end(input: &str, sub_str: &str) -> bool {
-    let start = unsafe { sub_str.as_ptr().byte_offset_from(input.as_ptr()) };
-    let end_offset = start as usize + sub_str.len();
-    end_offset as usize >= input.len() - 1
-}
-
 impl CardCollection {
-    fn create_cloze_cards(&mut self, card: &Card, cloze_type: ClozeType) {
-        let quote_iterator = ClozeIterator::new(cloze_type, &card.content.back);
-
-        for (index, cloze_item) in quote_iterator.enumerate() {
-            let mut cloze_front: String;
-
-            if !is_at_beginning(&card.content.back, cloze_item.before) {
-                cloze_front = String::from("...\n");
-            } else {
-                cloze_front = String::new();
-            }
-            cloze_front.push_str(cloze_item.before);
-            cloze_front.push_str("{...}");
-            cloze_front.push_str(cloze_item.after);
-
-            if !is_at_end(&card.content.back, cloze_item.after) {
-                cloze_front.push_str("\n...");
-            }
-
-            let mut cloze_back: String = String::from("{{{");
-            cloze_back.push_str(cloze_item.clozed);
-            cloze_back.push_str("}}}");
-
-            let cloze_card = Card {
-                fsrs_state: FSRSState::new(card.fsrs_state.date_added),
-                content: CardContent {
-                    prefix: card.content.prefix.to_string(),
-                    front: cloze_front,
-                    back: cloze_back,
-                    editable: false, // Cloze cards are not editable
-                    base: Some(self.base_cards.len()),
-                    cloze_index: Some(index),
-                },
-            };
-
-            self.cards.push(cloze_card);
-        }
-    }
-
-    fn create_special_cards(
-        &mut self,
-        card: &Card,
-        metadata: CardMetadata,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if metadata.card_type == "line" {
-            self.create_cloze_cards(
-                card,
-                ClozeType::Lines(LineSettings {
-                    lines_before_after: metadata.surrounding_lines as i32,
-                }),
-            );
-        } else {
-            panic!("unsupported card type {}", metadata.card_type);
-        }
-        Ok(())
-    }
-
     fn create_basic_cloze_cards(
         &mut self,
         card: Card,

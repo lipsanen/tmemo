@@ -22,7 +22,6 @@ fn migrate_version_2_to_3(value: &Value) -> Option<Value> {
     for card in output.get_mut("cards")?.as_array_mut().unwrap() {
         let content = card.get_mut("content").unwrap();
         let cloze_index = content.get("cloze_index").unwrap().clone();
-        let back = content.get("back").unwrap();
         let front = content.get("front").unwrap();
         let str: String = front.as_str().unwrap().into();
         if !str.contains('\n')
