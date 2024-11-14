@@ -16,6 +16,7 @@ pub struct BaseCard {
     pub prefix: String,
     pub front: String,
     pub back: String,
+    pub dead: bool,
 }
 
 impl From<Card> for BaseCard {
@@ -24,6 +25,7 @@ impl From<Card> for BaseCard {
             prefix: value.content.prefix,
             front: value.content.front,
             back: value.content.back,
+            dead: false,
         }
     }
 }
@@ -36,6 +38,39 @@ impl Into<Card> for BaseCard {
         card.content.back = self.back;
 
         card
+    }
+}
+
+impl BaseCard {
+    pub fn key(&self) -> String {
+        self.front.clone() + &self.back
+    }
+}
+
+impl PartialOrd for BaseCard {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.front.partial_cmp(&other.front)
+    }
+}
+
+impl Ord for BaseCard {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.front.cmp(&other.front)
+    }
+}
+
+impl PartialEq for BaseCard {
+    fn eq(self: &Self, other: &Self) -> bool {
+        self.back == other.back && self.front == other.front
+    }
+}
+
+impl Eq for BaseCard {}
+
+impl Hash for BaseCard {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.back.hash(state);
+        self.front.hash(state);
     }
 }
 
@@ -295,6 +330,70 @@ fn replace_cloze(input: &str, cloze_type: ClozeType) -> String {
     let in_between = &input[prev_cloze_end..];
     output.push_str(in_between);
     output
+}
+
+fn create_basic_cloze_cards(
+    card: BaseCard,
+    cloze_type: ClozeType,
+    base_card_index: usize,
+    date: Date,
+    editable: bool
+) -> Vec<Card> {
+    let iterator = ClozeIterator::new(cloze_type.clone(), &card.back);
+    let mut cards : Vec<Card> = vec![];
+
+    for (index, cloze_item) in iterator.enumerate() {
+        let mut cloze_front = card.front.to_string();
+        cloze_front.push_str("\n\n");
+        cloze_front.push_str(&replace_cloze(cloze_item.before, cloze_type.clone()));
+        cloze_front.push_str("{...}");
+        cloze_front.push_str(&replace_cloze(cloze_item.after, cloze_type.clone()));
+        let cloze_back = cloze_item.clozed.to_string();
+
+        let cloze_card = Card {
+            fsrs_state: FSRSState::new(date),
+            content: CardContent {
+                prefix: card.prefix.to_string(),
+                front: cloze_front,
+                back: cloze_back,
+                editable,
+                base: base_card_index,
+                child_index: index,
+            },
+        };
+
+        cards.push(cloze_card);
+    }
+
+    cards
+}
+
+pub fn create_cards(card: BaseCard, base_card_index: usize, date: Date, editable: bool) -> Vec<Card> {
+    let has_triple_braces =
+        card.back.find("{{{").is_some() && card.back.find("}}}").is_some();
+    let has_triple_paren =
+        card.back.find("(((").is_some() && card.back.find(")))").is_some();
+
+    if !has_triple_paren && !has_triple_braces {
+        let card = Card {
+            fsrs_state: FSRSState::new(date),
+            content: CardContent {
+                prefix: card.prefix,
+                front: card.front,
+                back: card.back,
+                editable: editable,
+                base: base_card_index,
+                child_index: 0,
+            },
+        };
+        return vec![card];
+    }
+
+    if has_triple_braces {
+        create_basic_cloze_cards(card, ClozeType::TripleBrace, base_card_index, date, editable)
+    } else {
+        create_basic_cloze_cards(card, ClozeType::TripleParen, base_card_index, date, editable)
+    }
 }
 
 impl CardCollection {

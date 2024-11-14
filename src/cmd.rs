@@ -201,7 +201,7 @@ impl Cli {
                 let mut deck = result.unwrap();
                 let mut cache = CardCache::new();
                 let cards = cache.get_all_cards_in_work_directory(None).unwrap();
-                deck.replace_cards(cards).unwrap();
+                deck.replace_cards(cards, Date::now()).unwrap();
                 deck.save_to_file().unwrap();
                 println!("Deck updated");
             }

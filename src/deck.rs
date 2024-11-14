@@ -1,11 +1,11 @@
-use crate::card::{BaseCard, Card, CardCollection};
+use crate::card::{create_cards, BaseCard, Card, CardCollection};
 use crate::date::Date;
 use crate::fsrs::{FSRSParams, ReviewAnswer, ReviewResult};
 use crate::parsing::try_replacing_cards;
 use crate::rand::SplitMix64;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufReader, BufWriter};
@@ -121,11 +121,6 @@ impl Deck {
     pub fn edit_card(&mut self, new_card: Card, card_index: usize) {
         self.edit_base_card(self.cards[card_index].content.base, new_card);
     }
-
-    // fn edit_card_internal(&mut self, idx: usize, new_card: Card) {
-    //     let base_card_index = self.cards[idx].content.base;
-    //     self.edit_base_card(base_card_index, new_card);
-    // }
 
     pub fn edit_base_card(&mut self, base_card_index: usize, mut new_card: Card) {
         new_card = fix_card_new_lines(new_card);
@@ -345,54 +340,122 @@ impl Deck {
         }
     }
 
+    pub fn delete_base_cards(&mut self, idx: usize) {
+        self.base_cards[idx].dead = true;
+        let mut indices = vec![];
+        for (card_idx, card) in self.cards.iter().enumerate() {
+            if card.content.base == idx {
+                indices.push(card_idx);
+            }
+        }
+
+        for idx in indices {
+            let card = self.cards.remove(idx);
+            self.orphans.push(card);
+        }
+    }
+
     pub fn replace_cards(
         &mut self,
         collection: CardCollection,
+        date: Date
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut map: HashMap<String, Card> = HashMap::new();
-        let new_cards = collection.cards;
-        self.base_cards = collection.base_cards;
-        map.reserve(new_cards.len());
 
-        for card in new_cards {
-            let key = card.content.key();
+        if self.base_cards.len() == 0 && self.cards.len() > 0 {
+            let mut map: HashMap<String, Card> = HashMap::new();
+            let new_cards = collection.cards;
+            self.base_cards = collection.base_cards;
+            map.reserve(new_cards.len());
 
-            if map.contains_key(&key) {
-                // duplicate detected, set the previous card as not editable
-                map.get_mut(&key).unwrap().content.editable = false;
-            } else {
-                map.insert(key.clone(), card);
-            }
-        }
+            for card in new_cards {
+                let key = card.content.key();
 
-        let mut updated_cards: Vec<Card> = Vec::new();
-        let old_cards = self.cards.drain(0..);
-
-        for mut card in old_cards {
-            let key = card.content.key();
-            if map.contains_key(&key) {
-                let new_entry = map.remove(&key).unwrap();
-                card.content = new_entry.content;
-                updated_cards.push(card);
-            } else {
-                self.orphans.push(card);
-            }
-        }
-
-        for (_, mut card) in map {
-            for i in 0..self.orphans.len() {
-                if &self.orphans[i].content.front == &card.content.front {
-                    let orphan = self.orphans.remove(i);
-                    card.fsrs_state = orphan.fsrs_state;
-                    break;
+                if map.contains_key(&key) {
+                    // duplicate detected, set the previous card as not editable
+                    map.get_mut(&key).unwrap().content.editable = false;
+                } else {
+                    map.insert(key.clone(), card);
                 }
             }
 
-            updated_cards.push(card);
+            let mut updated_cards: Vec<Card> = Vec::new();
+            let old_cards = self.cards.drain(0..);
+
+            for mut card in old_cards {
+                let key = card.content.key();
+                if map.contains_key(&key) {
+                    let new_entry = map.remove(&key).unwrap();
+                    card.content = new_entry.content;
+                    updated_cards.push(card);
+                } else {
+                    self.orphans.push(card);
+                }
+            }
+
+            for (_, mut card) in map {
+                for i in 0..self.orphans.len() {
+                    if &self.orphans[i].content.front == &card.content.front {
+                        let orphan = self.orphans.remove(i);
+                        card.fsrs_state = orphan.fsrs_state;
+                        break;
+                    }
+                }
+
+                updated_cards.push(card);
+            }
+
+            self.cards = updated_cards;
+            self.cards.sort();
+            return Ok(());
         }
 
-        self.cards = updated_cards;
+        let mut map: HashMap<String, BaseCard> = HashMap::new();
+        let mut duplicates: HashSet<BaseCard> = HashSet::new();
+        map.reserve(collection.base_cards.len());
+
+        for card in &collection.base_cards {
+            let key = card.key();
+
+            if map.contains_key(&key) {
+                // duplicate detected, set the card as not editable
+                duplicates.insert(card.clone());
+            } else {
+                map.insert(key, card.clone());
+            }
+        }
+        
+        let mut idx = 0;
+
+        loop {
+            if idx >= self.base_cards.len() {
+                break;
+            }
+
+            let base_card = &self.base_cards[idx];
+            let key = base_card.key();
+            let in_map = map.contains_key(&key);
+            if in_map && !base_card.dead {
+                map.remove(&key);
+                idx += 1;
+            } else if !base_card.dead {
+                self.delete_base_cards(idx);
+            } else {
+                idx += 1;
+            }
+        }
+
+        let mut new_cards : Vec<BaseCard> = map.into_values().collect();
+        new_cards.sort();
+
+        for new_card in new_cards {
+            let editable = !duplicates.contains(&new_card);
+            let cards = create_cards(new_card.clone(), self.base_cards.len(), date, editable);
+            self.base_cards.push(new_card);
+            self.cards.extend(cards.into_iter());
+        }
+
         self.cards.sort();
+
         Ok(())
     }
 
@@ -535,8 +598,8 @@ mod tests {
         let collection1 = CardCollection::from(cards1).unwrap();
         let collection2 = CardCollection::from(cards2).unwrap();
 
-        let _ = deck.replace_cards(collection1);
-        let _ = deck.replace_cards(collection2);
+        let _ = deck.replace_cards(collection1, date(2024, 1, 1));
+        let _ = deck.replace_cards(collection2, date(2024, 1, 2));
         assert!(deck.orphans.is_empty());
         // Original fsrs_state along with dates added should be preserved
         assert_eq!(deck.cards[0].fsrs_state.date_added, date(2024, 1, 1));
@@ -548,7 +611,7 @@ mod tests {
         let cloze_cards = vec![new_card_with_back("front1", "{{{back1}}} {{{back2}}}")];
         let collection = CardCollection::from(cloze_cards).unwrap();
         let mut deck = Deck::new();
-        let _ = deck.replace_cards(collection);
+        let _ = deck.replace_cards(collection, Date::now());
 
         assert_eq!(deck.cards.len(), 2);
         deck.edit_base_card(0, new_card_with_back("front1", "{{{back3}}} {{{back4}}}"));
@@ -574,7 +637,7 @@ mod tests {
             vec.push(new_card_with_date(&format!("test{}", i), start_day.clone()));
         }
         let collection = CardCollection::from(vec).unwrap();
-        let _ = deck.replace_cards(collection);
+        let _ = deck.replace_cards(collection, start_day);
         deck.reschedule(date(2024, 1, 1), 2, 1);
         assert_eq!(deck.cards[0].fsrs_state.review_date, start_day);
         assert_eq!(
@@ -588,14 +651,13 @@ mod tests {
         let mut deck = Deck::new();
         let vec = vec![
             new_card_with_date("card1", date(2024, 1, 1)),
-            new_card_with_date("card2", date(2024, 2, 1)),
             new_card_with_date("card3", date(2024, 1, 15)),
         ];
 
         let mut generator = SplitMix64::from_seed(42);
         let collection = CardCollection::from(vec).unwrap();
 
-        let _ = deck.replace_cards(collection);
+        let _ = deck.replace_cards(collection, date(2024, 1, 15));
         deck.start_review(date(2024, 1, 15), &mut generator);
         for i in 0..100 {
             assert_eq!(deck.active_review_count(), 2);
@@ -616,8 +678,7 @@ mod tests {
         deck.start_review(date(2024, 1, 15), &mut generator);
         assert_eq!(deck.active_review_count(), 0);
         assert_eq!(deck.cards[0].fsrs_state.review_date, date(2024, 1, 16));
-        assert_eq!(deck.cards[1].fsrs_state.review_date, date(2024, 2, 1));
-        assert_eq!(deck.cards[2].fsrs_state.review_date, date(2024, 1, 16));
+        assert_eq!(deck.cards[1].fsrs_state.review_date, date(2024, 1, 16));
     }
 
     #[test]
@@ -648,9 +709,9 @@ mod tests {
         let collection = CardCollection::from(cards).unwrap();
 
         let mut deck: Deck = Deck::new();
-        let _ = deck.replace_cards(collection.clone());
+        let _ = deck.replace_cards(collection.clone(), Date::now());
         assert_eq!(deck.cards.len(), 100);
-        let _ = deck.replace_cards(collection);
+        let _ = deck.replace_cards(collection, Date::now());
         assert_eq!(deck.cards.len(), 100);
         assert_eq!(deck.orphans.len(), 0);
     }
@@ -661,7 +722,7 @@ mod tests {
         let mut generator = SplitMix64::from_seed(0);
 
         let mut deck: Deck = Deck::new();
-        let _ = deck.replace_cards(CardCollection::from(cards.clone()).unwrap());
+        let _ = deck.replace_cards(CardCollection::from(cards.clone()).unwrap(), Date::now());
         deck.start_random_review(default_date(), &mut generator, 20);
         assert!(deck.review_index.is_some());
         assert_eq!(deck.active_review_count(), 20);
@@ -672,7 +733,7 @@ mod tests {
         let cards: Vec<Card> = vec![new_card("front"), new_card("front")];
 
         let mut deck: Deck = Deck::new();
-        let result = deck.replace_cards(CardCollection::from(cards).unwrap());
+        let result = deck.replace_cards(CardCollection::from(cards).unwrap(), Date::now());
         assert!(result.is_ok());
         assert_eq!(deck.cards.len(), 1);
         assert_eq!(

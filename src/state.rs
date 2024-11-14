@@ -252,7 +252,7 @@ impl TMemoInternalState {
                 true
             }
             TmemoStateAction::ReplaceCards(cards) => {
-                match self.deck.replace_cards(cards.clone()) {
+                match self.deck.replace_cards(cards.clone(), Date::now()) {
                     Ok(()) => {
                         let count = self
                             .deck
