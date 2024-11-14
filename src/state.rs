@@ -479,9 +479,9 @@ impl TMemoInternalState {
                     self.view = TMemoStateView::Edit;
                     self.edit_return_view = TMemoStateView::Review;
                     self.edit_mode = mode.clone();
-                    let parent_index = self.current_card.as_ref().unwrap().content.base.unwrap();
+                    let parent_index = self.current_card.as_ref().unwrap().content.base;
                     let edit_card = self.deck.base_cards[parent_index].clone();
-                    self.current_card = Some(edit_card);
+                    self.current_card = Some(edit_card.into());
                     self.edit_index = None;
                 }
                 true
@@ -557,10 +557,10 @@ impl TMemoInternalState {
                 }
                 let mut card: Card = self.deck.cards[card_index].clone();
                 self.edit_index = None;
-                if !card.content.editable && card.content.base.is_some() {
-                    let parent_index = card.content.base.unwrap();
-                    card = self.deck.base_cards[parent_index].clone();
-                } else if !card.content.editable {
+                if card.content.editable {
+                    let parent_index = card.content.base;
+                    card = self.deck.base_cards[parent_index].clone().into();
+                } else {
                     return false;
                 }
                 self.edit_mode = EditMode::EditFront;
@@ -808,8 +808,8 @@ mod tests {
                 front: front.to_string(),
                 back: String::new(),
                 editable: true,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             },
             fsrs_state: FSRSState::new(default_date()),
         }
@@ -822,8 +822,8 @@ mod tests {
                 front: front.to_string(),
                 back: back.to_string(),
                 editable: true,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             },
             fsrs_state: FSRSState::new(default_date()),
         }
@@ -1033,8 +1033,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .content
-                .base
-                .unwrap(),
+                .base,
             1
         );
     }
@@ -1051,8 +1050,18 @@ mod tests {
 
         state.process(TmemoStateAction::ReplaceCards(collection));
         assert_eq!(state.current_state.deck.cards.len(), 2);
-        assert_eq!(state.current_state.deck.base_cards.len(), 1);
+        assert_eq!(state.current_state.deck.base_cards.len(), 2);
         state.process(TmemoStateAction::StartReview);
+        assert_eq!(
+            state
+                .current_state
+                .current_card
+                .as_ref()
+                .unwrap()
+                .content
+                .base,
+            1
+        );
         state.process(TmemoStateAction::StartEdit(super::EditMode::EditFront));
         state.process(TmemoStateAction::StartEdit(super::EditMode::EditBack));
         state.process(TmemoStateAction::RawKey('}', KeyModifiers::NONE));
@@ -1073,8 +1082,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .content
-                .base
-                .unwrap(),
+                .base,
             1
         );
         assert_eq!(

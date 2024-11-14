@@ -11,6 +11,34 @@ pub struct Card {
     pub fsrs_state: FSRSState,
 }
 
+#[derive(Debug, Deserialize, Clone, Serialize)]
+pub struct BaseCard {
+    pub prefix: String,
+    pub front: String,
+    pub back: String,
+}
+
+impl From<Card> for BaseCard {
+    fn from(value: Card) -> Self {
+        BaseCard {
+            prefix: value.content.prefix,
+            front: value.content.front,
+            back: value.content.back,
+        }
+    }
+}
+
+impl Into<Card> for BaseCard {
+    fn into(self) -> Card {
+        let mut card = Card::new();
+        card.content.prefix = self.prefix;
+        card.content.front = self.front;
+        card.content.back = self.back;
+
+        card
+    }
+}
+
 fn default_surrounding_lines() -> u32 {
     2
 }
@@ -180,15 +208,15 @@ pub struct CardContent {
     pub front: String,
     pub back: String,
     pub editable: bool,
-    #[serde(skip_serializing, skip_deserializing)]
-    pub base: Option<usize>,
     #[serde(default)]
-    pub cloze_index: Option<usize>,
+    pub base: usize,
+    #[serde(default)]
+    pub child_index: usize,
 }
 
 #[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct CardCollection {
-    pub base_cards: Vec<Card>,
+    pub base_cards: Vec<BaseCard>,
     pub cards: Vec<Card>,
 }
 
@@ -206,16 +234,14 @@ impl CardContent {
             front: String::new(),
             back: String::new(),
             editable: true,
-            base: None,
-            cloze_index: None,
+            base: 0,
+            child_index: 0,
         }
     }
 
     pub fn get_editability(&self) -> Editable {
         if self.editable {
             Editable::Editable
-        } else if self.base.is_some() {
-            Editable::BaseEditable
         } else {
             Editable::NotEditable
         }
@@ -293,27 +319,29 @@ impl CardCollection {
                     prefix: card.content.prefix.to_string(),
                     front: cloze_front,
                     back: cloze_back,
-                    editable: false, // Cloze cards are not editable
-                    base: Some(self.base_cards.len()),
-                    cloze_index: Some(index),
+                    editable: true, // Cloze cards are not editable
+                    base: self.base_cards.len(),
+                    child_index: index,
                 },
             };
 
             self.cards.push(cloze_card);
         }
 
-        self.base_cards.push(card);
+        self.base_cards.push(card.into());
         Ok(())
     }
 
-    fn create_cards(&mut self, card: Card) -> Result<(), Box<dyn std::error::Error>> {
+    fn create_cards(&mut self, mut card: Card) -> Result<(), Box<dyn std::error::Error>> {
         let has_triple_braces =
             card.content.back.find("{{{").is_some() && card.content.back.find("}}}").is_some();
         let has_triple_paren =
             card.content.back.find("(((").is_some() && card.content.back.find(")))").is_some();
 
         if !has_triple_paren && !has_triple_braces {
-            self.cards.push(card);
+            card.content.base = self.base_cards.len();
+            self.cards.push(card.clone());
+            self.base_cards.push(card.into());
             return Ok(());
         }
 
@@ -352,7 +380,7 @@ impl Eq for CardContent {}
 mod tests {
     use super::{Card, CardCollection, CardContent};
     use crate::date::Date;
-    use crate::{fsrs::FSRSState, parsing::parse_cards};
+    use crate::fsrs::FSRSState;
 
     fn default_date() -> Date {
         Date::from_yo_opt(2024, 1).unwrap()
@@ -368,8 +396,8 @@ mod tests {
                 front: "test".to_string(),
                 back: "a reference to an i32 with {{{an explicit lifetime 'a}}}".to_string(),
                 editable: false,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             },
         }];
 
@@ -392,8 +420,8 @@ mod tests {
                     front: "".to_string(),
                     back: "{{{test1}}} {{{test2}}}".to_string(),
                     editable: false,
-                    base: None,
-                    cloze_index: None,
+                    base: 0,
+                    child_index: 0,
                 },
             },
             Card {
@@ -403,8 +431,8 @@ mod tests {
                     front: "".to_string(),
                     back: "{{{test1}}} {{{test2}}}".to_string(),
                     editable: false,
-                    base: None,
-                    cloze_index: None,
+                    base: 0,
+                    child_index: 0,
                 },
             },
         ];
@@ -416,10 +444,10 @@ mod tests {
         assert_eq!(&collection.cards[1].content.front, "\n\ntest1 {...}");
         assert_eq!(&collection.cards[2].content.front, "\n\n{...} test2");
         assert_eq!(&collection.cards[3].content.front, "\n\ntest1 {...}");
-        assert_eq!(collection.cards[0].content.base.unwrap(), 0);
-        assert_eq!(collection.cards[1].content.base.unwrap(), 0);
-        assert_eq!(collection.cards[2].content.base.unwrap(), 1);
-        assert_eq!(collection.cards[3].content.base.unwrap(), 1);
+        assert_eq!(collection.cards[0].content.base, 0);
+        assert_eq!(collection.cards[1].content.base, 0);
+        assert_eq!(collection.cards[2].content.base, 1);
+        assert_eq!(collection.cards[3].content.base, 1);
     }
 
     #[test]
@@ -431,8 +459,8 @@ mod tests {
                 front: "".to_string(),
                 back: "xd (((test1))) (((test2)))".to_string(),
                 editable: false,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             },
         }];
 
@@ -443,8 +471,8 @@ mod tests {
         assert_eq!(&collection.cards[1].content.front, "\n\nxd test1 {...}");
         assert_eq!(&collection.cards[0].content.back, "test1");
         assert_eq!(&collection.cards[1].content.back, "test2");
-        assert_eq!(collection.cards[0].content.base.unwrap(), 0);
-        assert_eq!(collection.cards[1].content.base.unwrap(), 0);
+        assert_eq!(collection.cards[0].content.base, 0);
+        assert_eq!(collection.cards[1].content.base, 0);
     }
 
     #[test]
@@ -475,8 +503,8 @@ mod tests {
             front: "".to_string(),
             back: "".to_string(),
             editable: true,
-            base: None,
-            cloze_index: None,
+            base: 0,
+            child_index: 0,
         };
 
         let card_content2 = CardContent {
@@ -484,8 +512,8 @@ mod tests {
             front: "".to_string(),
             back: "".to_string(),
             editable: true,
-            base: None,
-            cloze_index: None,
+            base: 0,
+            child_index: 0,
         };
 
         assert_eq!(card_content.get_md_filename(), "test.md");

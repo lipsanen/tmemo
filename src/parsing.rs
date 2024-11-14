@@ -136,8 +136,8 @@ fn find_card(input: &str, card: &Card, heading: Option<String>) -> Option<CardLo
                     front: line[0..index].to_string(),
                     back: line[index + 3..].to_string(),
                     editable: true,
-                    base: None,
-                    cloze_index: None,
+                    base: 0,
+                    child_index: 0,
                 };
                 if content == card.content && content.back == card.content.back {
                     return Some(CardLocationData {
@@ -179,8 +179,8 @@ fn find_card(input: &str, card: &Card, heading: Option<String>) -> Option<CardLo
                         front: multiline_front.to_string(),
                         back: multiline_back.to_string(),
                         editable: true,
-                        base: None,
-                        cloze_index: None,
+                        base: 0,
+                        child_index: 0,
                     };
 
                     if content == card.content && content.back == card.content.back {
@@ -311,8 +311,8 @@ fn create_cards(
             front: front.to_string(),
             back: back.to_string(),
             editable: true,
-            base: None,
-            cloze_index: None,
+            base: 0,
+            child_index: 0,
         },
     };
 
@@ -409,8 +409,8 @@ mod tests {
                 front: "front".to_string(),
                 back: "back".to_string(),
                 editable: true,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             }
         );
         assert_eq!(
@@ -420,8 +420,8 @@ mod tests {
                 front: "front2".to_string(),
                 back: "back2".to_string(),
                 editable: true,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             }
         );
         assert_eq!(cards.len(), 2);
@@ -462,8 +462,8 @@ mod tests {
                 front: "front".to_string(),
                 back: "back".to_string(),
                 editable: true,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             }
         );
         assert_eq!(
@@ -473,8 +473,8 @@ mod tests {
                 front: "front2".to_string(),
                 back: "back2".to_string(),
                 editable: true,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             }
         );
         assert_eq!(cards.len(), 2);

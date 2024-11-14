@@ -1,4 +1,4 @@
-use crate::card::{Card, CardCollection};
+use crate::card::{BaseCard, Card, CardCollection};
 use crate::date::Date;
 use crate::fsrs::{FSRSParams, ReviewAnswer, ReviewResult};
 use crate::parsing::try_replacing_cards;
@@ -19,13 +19,13 @@ pub struct Deck {
     pub track_review_history: bool,
     pub parsing_version: u32,
     pub params: FSRSParams,
+    #[serde(default)]
+    pub base_cards: Vec<BaseCard>,
 
     #[serde(skip_serializing, skip_deserializing)]
     pub review_index: Option<usize>,
     #[serde(skip_serializing, skip_deserializing)]
     pub edited_cards: Vec<(Card, Card)>,
-    #[serde(skip_serializing, skip_deserializing)]
-    pub base_cards: Vec<Card>,
     #[serde(skip_serializing, skip_deserializing)]
     pub review_indices: Vec<usize>,
     #[serde(skip_serializing, skip_deserializing)]
@@ -119,52 +119,30 @@ impl Deck {
     }
 
     pub fn edit_card(&mut self, new_card: Card, card_index: usize) {
-        if let Some(index) = self.cards[card_index].content.base {
-            self.edit_base_card(index, new_card);
-        } else {
-            self.edit_card_internal(card_index, new_card);
-        }
+        self.edit_base_card(self.cards[card_index].content.base, new_card);
     }
 
-    fn edit_card_internal(&mut self, idx: usize, mut new_card: Card) {
-        let cards = vec![new_card.clone()];
-        let original = self.cards[idx].clone();
-        let collection = CardCollection::from(cards).unwrap();
-
-        if collection.base_cards.is_empty() {
-            new_card = fix_card_new_lines(new_card);
-            self.cards[idx] = new_card.clone();
-            self.edited_cards.push((original, new_card));
-        } else {
-            // Card was transformed into a special card
-            // Push original card as the "old" base card and set the current card index to point to that base card
-            // After that the base card edit should work as previously
-            let base_card_index = self.base_cards.len();
-            self.cards[idx].content.base = Some(base_card_index);
-            self.cards[idx].content.cloze_index = Some(0);
-            self.base_cards.push(original);
-            self.edit_base_card(base_card_index, new_card);
-        }
-    }
+    // fn edit_card_internal(&mut self, idx: usize, new_card: Card) {
+    //     let base_card_index = self.cards[idx].content.base;
+    //     self.edit_base_card(base_card_index, new_card);
+    // }
 
     pub fn edit_base_card(&mut self, base_card_index: usize, mut new_card: Card) {
         new_card = fix_card_new_lines(new_card);
         let cards = vec![new_card.clone()];
         let collection = CardCollection::from(cards).unwrap();
         self.edited_cards
-            .push((self.base_cards[base_card_index].clone(), new_card.clone()));
-        self.base_cards[base_card_index] = new_card;
+            .push((self.base_cards[base_card_index].clone().into(), new_card.clone()));
+        self.base_cards[base_card_index] = new_card.into();
 
         // Fill the cards in order
-        'outer: for mut clozed_card in collection.cards {
-            clozed_card.content.base = Some(base_card_index);
+        'outer: for clozed_card in collection.cards {
             for card in self.cards.iter_mut() {
                 let parent = card.content.base;
-                if parent.is_some()
-                    && parent.unwrap() == base_card_index
-                    && card.content.cloze_index == clozed_card.content.cloze_index
+                if parent == base_card_index && card.content.child_index == clozed_card.content.child_index
                 {
                     card.content = clozed_card.content.clone();
+                    card.content.base = base_card_index;
                     continue 'outer;
                 }
             }
@@ -506,8 +484,8 @@ mod tests {
                 front: front.to_string(),
                 back: String::new(),
                 editable: true,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             },
             fsrs_state: FSRSState::new(default_date()),
         }
@@ -520,8 +498,8 @@ mod tests {
                 front: front.to_owned(),
                 back: String::new(),
                 editable: true,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             },
             fsrs_state: FSRSState::new(date),
         }
@@ -534,8 +512,8 @@ mod tests {
                 front: front.to_owned(),
                 back: back.to_owned(),
                 editable: true,
-                base: None,
-                cloze_index: None,
+                base: 0,
+                child_index: 0,
             },
             fsrs_state: FSRSState::new(default_date()),
         }
