@@ -69,7 +69,12 @@ fn run(cmd: Cli) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut terminal = setup_terminal()?;
     set_panic_hook();
+    let mut previous_view = state.current_state.view.clone();
     loop {
+        if previous_view != state.current_state.view {
+            terminal.clear()?;
+            previous_view = state.current_state.view.clone();
+        }
         terminal.draw(|frame| {
             render::render_app(frame, &state.current_state);
         })?;
