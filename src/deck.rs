@@ -434,12 +434,16 @@ impl Deck {
 
         for card in &self.cards {
             let mut prev_day = 0;
-            for review_log in &card.fsrs_state.review_log {
+            for (i, review_log) in card.fsrs_state.review_log.iter().enumerate() {
                 if review_log.day.day == prev_day {
                     // Only the first answer of the day is calculated in accuracy
                     continue;
                 }
                 prev_day = review_log.day.day;
+                if i == 0 {
+                    // Don't count the first review
+                    continue;
+                }
                 let day = current_day.day - review_log.day.day;
                 let was_correct: bool = review_log.answer == ReviewAnswer::Again;
                 let total_entry = map.get_mut(&-1).unwrap();
